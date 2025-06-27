@@ -38,7 +38,6 @@
 
 #include <Eigen/Geometry>
 #include <stdexcept>
-#include <hardware_interface/effort_joint_interface.h>
 
 using industrial_robot_status_interface::RobotMode;
 using industrial_robot_status_interface::TriState;
@@ -400,7 +399,8 @@ bool HardwareInterface::init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw
   // Register interfaces
   registerInterface(&js_interface_);
   registerInterface(&spj_interface_);
-  registerInterface(&pj_interface_);
+      registerInterface(&pj_interface_);
+    registerInterface(&ej_interface_);
   registerInterface(&vj_interface_);
   registerInterface(&ej_interface_);
   registerInterface(&svj_interface_);

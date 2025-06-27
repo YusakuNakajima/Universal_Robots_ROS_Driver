@@ -31,6 +31,7 @@
 #include <hardware_interface/robot_hw.h>
 #include <hardware_interface/force_torque_sensor_interface.h>
 #include <hardware_interface/joint_command_interface.h>
+#include <hardware_interface/effort_joint_interface.h>
 #include <hardware_interface/joint_state_interface.h>
 #include <pass_through_controllers/trajectory_interface.h>
 #include <algorithm>
@@ -250,6 +251,7 @@ protected:
   hardware_interface::JointStateInterface js_interface_;
   scaled_controllers::ScaledPositionJointInterface spj_interface_;
   hardware_interface::PositionJointInterface pj_interface_;
+  hardware_interface::EffortJointInterface ej_interface_;
   scaled_controllers::SpeedScalingInterface speedsc_interface_;
   hardware_interface::VelocityJointInterface vj_interface_;
   scaled_controllers::ScaledVelocityJointInterface svj_interface_;
@@ -279,6 +281,7 @@ protected:
 
   urcl::vector6d_t joint_position_command_;
   urcl::vector6d_t joint_velocity_command_;
+  urcl::vector6d_t joint_effort_command_;
   urcl::vector6d_t joint_positions_;
   urcl::vector6d_t joint_velocities_;
   urcl::vector6d_t target_joint_positions_;
@@ -332,6 +335,7 @@ protected:
   uint32_t runtime_state_;
   std::atomic<bool> position_controller_running_;
   std::atomic<bool> velocity_controller_running_;
+  std::atomic<bool> effort_controller_running_;
   std::atomic<bool> joint_forward_controller_running_;
   std::atomic<bool> cartesian_forward_controller_running_;
   std::atomic<bool> twist_controller_running_;
