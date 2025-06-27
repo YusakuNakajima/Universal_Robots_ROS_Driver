@@ -31,7 +31,6 @@
 #include <hardware_interface/robot_hw.h>
 #include <hardware_interface/force_torque_sensor_interface.h>
 #include <hardware_interface/joint_command_interface.h>
-#include <hardware_interface/effort_joint_interface.h>
 #include <hardware_interface/joint_state_interface.h>
 #include <pass_through_controllers/trajectory_interface.h>
 #include <algorithm>
