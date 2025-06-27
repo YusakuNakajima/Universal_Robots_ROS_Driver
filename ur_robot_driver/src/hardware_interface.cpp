@@ -38,6 +38,7 @@
 
 #include <Eigen/Geometry>
 #include <stdexcept>
+#include <hardware_interface/effort_joint_interface.h>
 
 using industrial_robot_status_interface::RobotMode;
 using industrial_robot_status_interface::TriState;
@@ -63,6 +64,7 @@ HardwareInterface::HardwareInterface()
   , joint_efforts_{ { 0, 0, 0, 0, 0, 0 } }
   , cartesian_velocity_command_({ 0, 0, 0, 0, 0, 0 })
   , cartesian_pose_command_({ 0, 0, 0, 0, 0, 0 })
+  , joint_effort_command_({ 0, 0, 0, 0, 0, 0 })
   , standard_analog_input_{ { 0, 0 } }
   , standard_analog_output_{ { 0, 0 } }
   , joint_names_(6)
@@ -74,6 +76,7 @@ HardwareInterface::HardwareInterface()
   , cartesian_forward_controller_running_(false)
   , twist_controller_running_(false)
   , pose_controller_running_(false)
+  , effort_controller_running_(false)
   , pausing_state_(PausingState::RUNNING)
   , pausing_ramp_up_increment_(0.01)
   , controllers_initialized_(false)
@@ -360,6 +363,8 @@ bool HardwareInterface::init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw
         hardware_interface::JointHandle(js_interface_.getHandle(joint_names_[i]), &joint_position_command_[i]));
     vj_interface_.registerHandle(
         hardware_interface::JointHandle(js_interface_.getHandle(joint_names_[i]), &joint_velocity_command_[i]));
+    ej_interface_.registerHandle(
+        hardware_interface::JointHandle(js_interface_.getHandle(joint_names_[i]), &joint_effort_command_[i]));
     spj_interface_.registerHandle(scaled_controllers::ScaledJointHandle(
         js_interface_.getHandle(joint_names_[i]), &joint_position_command_[i], &speed_scaling_combined_));
     svj_interface_.registerHandle(scaled_controllers::ScaledJointHandle(
@@ -397,6 +402,7 @@ bool HardwareInterface::init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw
   registerInterface(&spj_interface_);
   registerInterface(&pj_interface_);
   registerInterface(&vj_interface_);
+  registerInterface(&ej_interface_);
   registerInterface(&svj_interface_);
   registerInterface(&speedsc_interface_);
   registerInterface(&fts_interface_);
@@ -706,6 +712,11 @@ void HardwareInterface::write(const ros::Time& time, const ros::Duration& period
       ur_driver_->writeJointCommand(joint_velocity_command_, urcl::comm::ControlMode::MODE_SPEEDJ,
                                     robot_receive_timeout_);
     }
+    else if (effort_controller_running_)
+    {
+      ur_driver_->writeJointCommand(joint_effort_command_, urcl::comm::ControlMode::MODE_TORQUE,
+                                    robot_receive_timeout_);
+    }
     else if (joint_forward_controller_running_)
     {
       ur_driver_->writeTrajectoryControlMessage(urcl::control::TrajectoryControlMessage::TRAJECTORY_NOOP);
@@ -816,6 +827,10 @@ void HardwareInterface::doSwitch(const std::list<hardware_interface::ControllerI
         {
           pose_controller_running_ = false;
         }
+        if (resource_it.hardware_interface == "hardware_interface::EffortJointInterface")
+        {
+          effort_controller_running_ = false;
+        }
       }
     }
   }
@@ -861,6 +876,10 @@ void HardwareInterface::doSwitch(const std::list<hardware_interface::ControllerI
         if (resource_it.hardware_interface == "ros_controllers_cartesian::PoseCommandInterface")
         {
           pose_controller_running_ = true;
+        }
+        if (resource_it.hardware_interface == "hardware_interface::EffortJointInterface")
+        {
+          effort_controller_running_ = true;
         }
       }
     }

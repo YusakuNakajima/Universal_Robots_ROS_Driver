@@ -1,0 +1,22 @@
+
+def torque_control():
+  # Wait for ROS driver to be ready
+  sleep(0.2)
+
+  while (True):
+    # Read target torque from RTDE registers
+    target_torque = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    target_torque[0] = read_input_double_register(0)
+    target_torque[1] = read_input_double_register(1)
+    target_torque[2] = read_input_double_register(2)
+    target_torque[3] = read_input_double_register(3)
+    target_torque[4] = read_input_double_register(4)
+    target_torque[5] = read_input_double_register(5)
+
+    # Send torque command to the robot
+    torque_command(target_torque)
+
+    # Synchronize with the robot controller
+    sync()
+  end
+end

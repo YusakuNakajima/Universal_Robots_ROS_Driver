@@ -1,0 +1,6 @@
+input_double_register_0
+input_double_register_1
+input_double_register_2
+input_double_register_3
+input_double_register_4
+input_double_register_5
