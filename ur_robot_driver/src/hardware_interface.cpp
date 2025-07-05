@@ -338,6 +338,13 @@ bool HardwareInterface::init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw
   // end
   command_sub_ = robot_hw_nh.subscribe("script_command", 1, &HardwareInterface::commandCallback, this);
 
+  // Create free drive functionality
+  free_drive_mode_sub_ = robot_hw_nh.subscribe("free_drive_mode", 1, &HardwareInterface::freeDriveModeCallback, this);
+  // timeout in sec from last received free_drive msg until free drive mode is automatically disabled
+  free_drive_mode_timeout_ = robot_hw_nh.param("free_drive_mode_timeout", 1.0);
+  free_drive_mode_control_msg_ = urcl::control::FreedriveControlMessage::FREEDRIVE_STOP;
+  free_drive_mode_requested_ = false;
+
   // Names of the joints. Usually, this is given in the controller config file.
   if (!robot_hw_nh.getParam("joints", joint_names_))
   {
@@ -702,7 +709,18 @@ void HardwareInterface::write(const ros::Time& time, const ros::Duration& period
        runtime_state_ == static_cast<uint32_t>(rtde::RUNTIME_STATE::PAUSING)) &&
       robot_program_running_ && (!non_blocking_read_ || packet_read_))
   {
-    if (position_controller_running_)
+    if (free_drive_mode_requested_ || free_drive_mode_control_msg_ != urcl::control::FreedriveControlMessage::FREEDRIVE_STOP) {
+      if (ros::Time::now() > (free_drive_mode_latest_request_ + ros::Duration(free_drive_mode_timeout_)) || !free_drive_mode_requested_) {
+        free_drive_mode_control_msg_ = urcl::control::FreedriveControlMessage::FREEDRIVE_STOP;
+        free_drive_mode_requested_ = false;
+      } else if (free_drive_mode_control_msg_ == urcl::control::FreedriveControlMessage::FREEDRIVE_STOP) {
+        free_drive_mode_control_msg_ = urcl::control::FreedriveControlMessage::FREEDRIVE_START;
+      } else {
+        free_drive_mode_control_msg_ = urcl::control::FreedriveControlMessage::FREEDRIVE_NOOP;
+      }
+      ur_driver_->writeFreedriveControlMessage(free_drive_mode_control_msg_);
+    }
+    else if (position_controller_running_)
     {
       ur_driver_->writeJointCommand(joint_position_command_, urcl::comm::ControlMode::MODE_SERVOJ,
                                     robot_receive_timeout_);
@@ -728,7 +746,8 @@ void HardwareInterface::write(const ros::Time& time, const ros::Duration& period
       cartesian_velocity_command_[3] = twist_command_.angular.x;
       cartesian_velocity_command_[4] = twist_command_.angular.y;
       cartesian_velocity_command_[5] = twist_command_.angular.z;
-      ur_driver_->writeJointCommand(cartesian_velocity_command_, urcl::comm::ControlMode::MODE_SPEEDL);
+      ur_driver_->writeJointCommand(cartesian_velocity_command_, urcl::comm::ControlMode::MODE_SPEEDL,
+                                    robot_receive_timeout_);
     }
     else if (pose_controller_running_)
     {
@@ -1314,6 +1333,17 @@ void HardwareInterface::commandCallback(const std_msgs::StringConstPtr& msg)
   {
     ROS_ERROR_STREAM("Error sending script to robot");
   }
+}
+
+void HardwareInterface::freeDriveModeCallback(const std_msgs::BoolConstPtr& msg)
+{
+  if (ur_driver_ == nullptr)
+  {
+    throw std::runtime_error("Trying to use the ur_driver_ member before it is initialized. This should not happen, "
+                             "please contact the package maintainer.");
+  }
+  free_drive_mode_latest_request_ = ros::Time::now();
+  free_drive_mode_requested_ = msg->data;
 }
 
 bool HardwareInterface::activateSplineInterpolation(std_srvs::SetBoolRequest& req, std_srvs::SetBoolResponse& res)
