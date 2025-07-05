@@ -2,8 +2,16 @@
 
 # Universal_Robots_ROS_Driver
 
----
 >[!IMPORTANT]
+>## ✨ Additional Functions Overview
+>This repository provides unofficial, research-purpose additions to the standard Universal Robots ROS driver. The key features included are:
+>
+>* **Free Drive Mode**: Allows you to make the robot compliant to be moved by hand.
+>* **UR Internal Force Mode**: Exposes the robot's powerful internal `force_mode` for creating compliant behaviors based on external forces.
+>
+
+>[!WARNING]
+>These are experimental features. Please **read the safety warnings and controller compatibility notes below** before attempting to use them.
 >## ⚠️ Safety Warning & Controller Compatibility
 >This repository includes unofficial features added for research purposes that are not fully tested and introduce significant risks.
 >
@@ -18,16 +26,6 @@
 >While this combination is technically possible, ensuring the safety of the resulting motion remains the user's responsibility.
 >
 >For more details, see the [`Universal_Robots_ROS_passthrough_controllers`](https://github.com/UniversalRobots/Universal_Robots_ROS_passthrough_controllers) repository.
-
-> ## Implementation details
-> **Free drive mode**
-> - Pull request: https://github.com/UniversalRobots/Universal_Robots_ROS_Driver/pull/718
-> - Implementation: https://github.com/schmid-jn/Universal_Robots_ROS_Driver/tree/feature/free_drive_mode
-> 
-> **UR Internal force mode**
-> - Pull request: https://github.com/UniversalRobots/Universal_Robots_ROS_Driver/pull/707
-> - Implementation: https://github.com/URJala/Universal_Robots_ROS_Driver/tree/force_mode_arguments
-> 
 
 >## Usage
 >
