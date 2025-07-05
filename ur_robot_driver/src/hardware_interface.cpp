@@ -340,6 +340,13 @@ bool HardwareInterface::init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw
   // end
   command_sub_ = robot_hw_nh.subscribe("script_command", 1, &HardwareInterface::commandCallback, this);
 
+  // Create free drive functionality
+  free_drive_mode_sub_ = robot_hw_nh.subscribe("free_drive_mode", 1, &HardwareInterface::freeDriveModeCallback, this);
+  // timeout in sec from last received free_drive msg until free drive mode is automatically disabled
+  free_drive_mode_timeout_ = robot_hw_nh.param("free_drive_mode_timeout", 1.0);
+  free_drive_mode_control_msg_ = urcl::control::FreedriveControlMessage::FREEDRIVE_STOP;
+  free_drive_mode_requested_ = false;
+
   // Names of the joints. Usually, this is given in the controller config file.
   if (!robot_hw_nh.getParam("joints", joint_names_))
   {
@@ -466,6 +473,12 @@ bool HardwareInterface::init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw
 
   // Setup the mounted payload through a ROS service
   set_payload_srv_ = robot_hw_nh.advertiseService("set_payload", &HardwareInterface::setPayload, this);
+
+  // Calling this service will set the robot in force mode
+  set_force_mode_srv_ = robot_hw_nh.advertiseService("start_force_mode", &HardwareInterface::setForceMode, this);
+
+  // Calling this service will stop the robot from being in force mode
+  disable_force_mode_srv_ = robot_hw_nh.advertiseService("stop_force_mode", &HardwareInterface::disableForceMode, this);
 
   // Call this to activate or deactivate using spline interpolation locally on the UR controller, when forwarding
   // trajectories to the UR robot.
@@ -702,7 +715,18 @@ void HardwareInterface::write(const ros::Time& time, const ros::Duration& period
        runtime_state_ == static_cast<uint32_t>(rtde::RUNTIME_STATE::PAUSING)) &&
       robot_program_running_ && (!non_blocking_read_ || packet_read_))
   {
-    if (position_controller_running_)
+    if (free_drive_mode_requested_ || free_drive_mode_control_msg_ != urcl::control::FreedriveControlMessage::FREEDRIVE_STOP) {
+      if (ros::Time::now() > (free_drive_mode_latest_request_ + ros::Duration(free_drive_mode_timeout_)) || !free_drive_mode_requested_) {
+        free_drive_mode_control_msg_ = urcl::control::FreedriveControlMessage::FREEDRIVE_STOP;
+        free_drive_mode_requested_ = false;
+      } else if (free_drive_mode_control_msg_ == urcl::control::FreedriveControlMessage::FREEDRIVE_STOP) {
+        free_drive_mode_control_msg_ = urcl::control::FreedriveControlMessage::FREEDRIVE_START;
+      } else {
+        free_drive_mode_control_msg_ = urcl::control::FreedriveControlMessage::FREEDRIVE_NOOP;
+      }
+      ur_driver_->writeFreedriveControlMessage(free_drive_mode_control_msg_);
+    }
+    else if (position_controller_running_)
     {
       ur_driver_->writeJointCommand(joint_position_command_, urcl::comm::ControlMode::MODE_SERVOJ,
                                     robot_receive_timeout_);
@@ -1229,6 +1253,83 @@ bool HardwareInterface::getRobotSoftwareVersion(ur_msgs::GetRobotSoftwareVersion
   return true;
 }
 
+bool HardwareInterface::setForceMode(ur_msgs::SetForceModeRequest& req, ur_msgs::SetForceModeResponse& res)
+{
+  // This may need to be added back in depending on the final format of the srv file
+  // if (req.limits.size() != 6)
+  // {
+  //   URCL_LOG_WARN("Size of received SetForceMode message is wrong");
+  //   res.success = false;
+  //   return false;
+  // }
+  urcl::vector6d_t task_frame;
+  urcl::vector6uint32_t selection_vector;
+  urcl::vector6d_t wrench;
+  urcl::vector6d_t limits;
+  double damping_factor = req.damping_factor;
+  double gain_scale = req.gain_scaling;
+
+  task_frame[0] = req.task_frame.pose.position.x;
+  task_frame[1] = req.task_frame.pose.position.x;
+  task_frame[2] = req.task_frame.pose.position.x;
+  KDL::Rotation rot = KDL::Rotation::Quaternion(req.task_frame.pose.orientation.x, req.task_frame.pose.orientation.y,
+                                                req.task_frame.pose.orientation.z, req.task_frame.pose.orientation.w);
+  task_frame[3] = rot.GetRot().x();
+  task_frame[4] = rot.GetRot().y();
+  task_frame[5] = rot.GetRot().z();
+
+  selection_vector[0] = req.selection_vector_x;
+  selection_vector[1] = req.selection_vector_y;
+  selection_vector[2] = req.selection_vector_z;
+  selection_vector[3] = req.selection_vector_rx;
+  selection_vector[4] = req.selection_vector_ry;
+  selection_vector[5] = req.selection_vector_rz;
+
+  wrench[0] = req.wrench.force.x;
+  wrench[1] = req.wrench.force.y;
+  wrench[2] = req.wrench.force.z;
+  wrench[3] = req.wrench.torque.x;
+  wrench[4] = req.wrench.torque.y;
+  wrench[5] = req.wrench.torque.z;
+
+  limits[0] = req.selection_vector_x ? req.speed_limits.linear.x : req.deviation_limits[0];
+  limits[1] = req.selection_vector_y ? req.speed_limits.linear.y : req.deviation_limits[1];
+  limits[2] = req.selection_vector_z ? req.speed_limits.linear.z : req.deviation_limits[2];
+  limits[3] = req.selection_vector_rx ? req.speed_limits.angular.x : req.deviation_limits[3];
+  limits[4] = req.selection_vector_ry ? req.speed_limits.angular.y : req.deviation_limits[4];
+  limits[5] = req.selection_vector_rz ? req.speed_limits.angular.z : req.deviation_limits[5];
+
+  if (req.type < 1 || req.type > 3)
+  {
+    ROS_ERROR("The force mode type has to be 1, 2, or 3. Received %u", req.type);
+    res.success = false;
+    return false;
+  }
+
+  unsigned int type = req.type;
+
+  if (ur_driver_->getVersion().major < 5)
+  {
+    if (gain_scale != 0)
+    {
+      ROS_WARN("Force mode gain scaling cannot be used on CB3 robots. The specified gain scaling will be ignored.");
+    }
+    res.success = this->ur_driver_->startForceMode(task_frame, selection_vector, wrench, type, limits, damping_factor);
+  }
+  else
+  {
+    res.success = this->ur_driver_->startForceMode(task_frame, selection_vector, wrench, type, limits, damping_factor,
+                                                   gain_scale);
+  }
+  return res.success;
+}
+
+bool HardwareInterface::disableForceMode(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
+{
+  res.success = this->ur_driver_->endForceMode();
+  return res.success;
+}
+
 void HardwareInterface::commandCallback(const std_msgs::StringConstPtr& msg)
 {
   std::string str = msg->data;
@@ -1251,6 +1352,17 @@ void HardwareInterface::commandCallback(const std_msgs::StringConstPtr& msg)
   {
     ROS_ERROR_STREAM("Error sending script to robot");
   }
+}
+
+void HardwareInterface::freeDriveModeCallback(const std_msgs::BoolConstPtr& msg)
+{
+  if (ur_driver_ == nullptr)
+  {
+    throw std::runtime_error("Trying to use the ur_driver_ member before it is initialized. This should not happen, "
+                             "please contact the package maintainer.");
+  }
+  free_drive_mode_latest_request_ = ros::Time::now();
+  free_drive_mode_requested_ = msg->data;
 }
 
 bool HardwareInterface::activateSplineInterpolation(std_srvs::SetBoolRequest& req, std_srvs::SetBoolResponse& res)

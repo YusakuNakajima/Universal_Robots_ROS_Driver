@@ -1,6 +1,93 @@
 [![Build badge](https://github.com/UniversalRobots/Universal_Robots_ROS_Driver/workflows/Industrial%20CI%20pipeline/badge.svg?branch=master&event=push)](https://github.com/UniversalRobots/Universal_Robots_ROS_Driver/actions)
 
 # Universal_Robots_ROS_Driver
+
+>[!IMPORTANT]
+>## ✨ Additional Functions Overview
+>This repository provides unofficial, research-purpose additions to the standard Universal Robots ROS driver. The key features included are:
+>
+>* **Free Drive Mode**: Allows you to make the robot compliant to be moved by hand.
+>* **UR Internal Force Mode**: Exposes the robot's powerful internal `force_mode` for creating compliant behaviors based on external forces.
+>
+
+>[!WARNING]
+>These are experimental features. Please **read the safety warnings and controller compatibility notes below** before attempting to use them.
+>## ⚠️ Safety Warning & Controller Compatibility
+>This repository includes unofficial features added for research purposes that are not fully tested and introduce significant risks.
+>
+>### CRITICAL DANGER: Incompatibility with `ros_control`
+>Controllers based on the **`ros_control`** framework (e.g., `joint_trajectory_controller`) **are incompatible** with Force/FreeDrive modes. A conflict will occur when the mode is disabled, as the `ros_control` controller attempts to regain control, causing the robot to **move suddenly and rapidly**. This is extremely hazardous.
+>
+>**Required Action:** You **must** stop or switch off any `ros_control` based controllers *before* enabling these modes.
+>
+>### Compatible Alternative: `passthrough_controller`
+>In contrast, these modes **can be used in conjunction with** the `passthrough_controller`. This controller avoids the conflict because it forwards trajectories directly to the UR's internal controller for execution, rather than managing the robot's state from the ROS side.
+>
+>While this combination is technically possible, ensuring the safety of the resulting motion remains the user's responsibility.
+>
+>For more details, see the [`Universal_Robots_ROS_passthrough_controllers`](https://github.com/UniversalRobots/Universal_Robots_ROS_passthrough_controllers) repository.
+
+>## Usage
+>
+>### Free drive mode
+>To control Free Drive mode, continuously publish a boolean value to the `/ur_hardware_interface/free_drive_mode` topic.
+>
+>```bash
+># Continuously publishes `true` to start the mode. Press Ctrl+C to stop.
+>rostopic pub -r 1 /ur_hardware_interface/free_drive_mode std_msgs/Bool "true"
+>````
+>
+>### Force mode
+>
+>This mode is controlled by calling ROS services.
+>
+>**To Start**
+>Call the `/ur_hardware_interface/start_force_mode` service with the desired parameters.
+>
+>  - **Parameter Reference**: The service parameters are based on the standard URScript `force_mode` function. For a detailed explanation of each parameter, please see the [official UR documentation](https://www.universal-robots.com/articles/ur/programming/urscript-dynamic-force-control/).
+>  - **Note**: While this is a ROS 1 implementation, the concept is similar to the official [`force_mode_controller`](https://docs.universal-robots.com/Universal_Robots_ROS2_Documentation/doc/ur_robot_driver/ur_controllers/doc/index.html#force-mode-controller) in the ROS 2 driver.
+>
+>*Example:*
+>
+>```bash
+>rosservice call /ur_hardware_interface/start_force_mode "task_frame:
+>   header:
+>     seq: 0
+>     stamp: {secs: 0, nsecs: 0}
+>     frame_id: 'base'
+>   pose:
+>     position: {x: 0.0, y: 0.0, z: 0.0}
+>     orientation: {x: 0.0, y: 0.0, z: 0.0, w: 0.0}
+> selection_vector_x: false
+> selection_vector_y: false
+> selection_vector_z: true
+> selection_vector_rx: false
+> selection_vector_ry: false
+> selection_vector_rz: false
+> wrench:
+>   force: {x: 0.0, y: 0.0, z: 5.0}
+>   torque: {x: 0.0, y: 0.0, z: 0.0}
+> type: 2
+> speed_limits:
+>   linear: {x: 0.1, y: 0.1, z: 0.1}
+>   angular: {x: 0.1, y: 0.1, z: 0.1}
+> deviation_limits: [0.1, 0.1, 0.15, 0.17, 0.17, 0.17]
+> damping_factor: 0.005
+> gain_scaling: 1.0"
+>```
+>
+>> **Note:** The above service call is a simplified example. The original example had some inconsistencies (e.g., `selection_vector` format, `speed_limits` vs. `limits`). Please adapt it based on your actual service definition.
+>
+>**To Stop**
+>Call the `/ur_hardware_interface/stop_force_mode` service.
+>
+>```bash
+>rosservice call /ur_hardware_interface/stop_force_mode "{}"
+>```
+
+
+---
+
 Universal Robots have become a dominant supplier of lightweight, robotic manipulators for industry, as well as for scientific research and education. The Robot Operating System (ROS) has developed from a community-centered movement to a mature framework and quasi standard, providing a rich set of powerful tools for robot engineers and researchers, working in many different domains.
 
 <div align="center"><img src="ur_robot_driver/doc/initial_setup_images/family_photo.png" alt="Universal Robot e-Series family" style="width: 90%;"/></div>
