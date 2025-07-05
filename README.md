@@ -3,88 +3,122 @@
 # Universal_Robots_ROS_Driver
 
 >[!IMPORTANT]
->## ✨ Additional Functions Overview
->This repository provides unofficial, research-purpose additions to the standard Universal Robots ROS driver. The key features included are:
->
->* **Free Drive Mode**: Allows you to make the robot compliant to be moved by hand.
->* **UR Internal Force Mode**: Exposes the robot's powerful internal `force_mode` for creating compliant behaviors based on external forces.
->
+## ✨ Additional Features Overview
 
->[!WARNING]
->These are experimental features. Please **read the safety warnings and controller compatibility notes below** before attempting to use them.
->## ⚠️ Safety Warning & Controller Compatibility
->This repository includes unofficial features added for research purposes that are not fully tested and introduce significant risks.
->
->### CRITICAL DANGER: Incompatibility with `ros_control`
->Controllers based on the **`ros_control`** framework (e.g., `joint_trajectory_controller`) **are incompatible** with Force/FreeDrive modes. A conflict will occur when the mode is disabled, as the `ros_control` controller attempts to regain control, causing the robot to **move suddenly and rapidly**. This is extremely hazardous.
->
->**Required Action:** You **must** stop or switch off any `ros_control` based controllers *before* enabling these modes.
->
->### Compatible Alternative: `passthrough_controller`
->In contrast, these modes **can be used in conjunction with** the `passthrough_controller`. This controller avoids the conflict because it forwards trajectories directly to the UR's internal controller for execution, rather than managing the robot's state from the ROS side.
->
->While this combination is technically possible, ensuring the safety of the resulting motion remains the user's responsibility.
->
->For more details, see the [`Universal_Robots_ROS_passthrough_controllers`](https://github.com/UniversalRobots/Universal_Robots_ROS_passthrough_controllers) repository.
+This repository provides unofficial, research-purpose additions to the standard Universal Robots ROS driver. The key features included are:
 
->## Usage
->
->### Free drive mode
->To control Free Drive mode, continuously publish a boolean value to the `/ur_hardware_interface/free_drive_mode` topic.
->
->```bash
-># Continuously publishes `true` to start the mode. Press Ctrl+C to stop.
->rostopic pub -r 1 /ur_hardware_interface/free_drive_mode std_msgs/Bool "true"
->````
->
->### Force mode
->
->This mode is controlled by calling ROS services.
->
->**To Start**
->Call the `/ur_hardware_interface/start_force_mode` service with the desired parameters.
->
->  - **Parameter Reference**: The service parameters are based on the standard URScript `force_mode` function. For a detailed explanation of each parameter, please see the [official UR documentation](https://www.universal-robots.com/articles/ur/programming/urscript-dynamic-force-control/).
->  - **Note**: While this is a ROS 1 implementation, the concept is similar to the official [`force_mode_controller`](https://docs.universal-robots.com/Universal_Robots_ROS2_Documentation/doc/ur_robot_driver/ur_controllers/doc/index.html#force-mode-controller) in the ROS 2 driver.
->
->*Example:*
->
->```bash
->rosservice call /ur_hardware_interface/start_force_mode "task_frame:
->   header:
->     seq: 0
->     stamp: {secs: 0, nsecs: 0}
->     frame_id: 'base'
->   pose:
->     position: {x: 0.0, y: 0.0, z: 0.0}
->     orientation: {x: 0.0, y: 0.0, z: 0.0, w: 0.0}
-> selection_vector_x: false
-> selection_vector_y: false
-> selection_vector_z: true
-> selection_vector_rx: false
-> selection_vector_ry: false
-> selection_vector_rz: false
-> wrench:
->   force: {x: 0.0, y: 0.0, z: 5.0}
->   torque: {x: 0.0, y: 0.0, z: 0.0}
-> type: 2
-> speed_limits:
->   linear: {x: 0.1, y: 0.1, z: 0.1}
->   angular: {x: 0.1, y: 0.1, z: 0.1}
-> deviation_limits: [0.1, 0.1, 0.15, 0.17, 0.17, 0.17]
-> damping_factor: 0.005
-> gain_scaling: 1.0"
->```
->
->> **Note:** The above service call is a simplified example. The original example had some inconsistencies (e.g., `selection_vector` format, `speed_limits` vs. `limits`). Please adapt it based on your actual service definition.
->
->**To Stop**
->Call the `/ur_hardware_interface/stop_force_mode` service.
->
->```bash
->rosservice call /ur_hardware_interface/stop_force_mode "{}"
->```
+  * **Free Drive Mode**: Allows you to make the robot compliant to be moved by hand.
+  * **UR Internal Force Mode**: Exposes the robot's powerful internal `force_mode` for creating compliant behaviors.
+  * **Direct Torque Control**: Allows for sending direct torque commands to each joint using the `ros_control` effort interface.
 
+> [\!WARNING]
+> These are experimental features. **Crucially, they have conflicting controller requirements and generally cannot be used at the same time.** Please read the safety warnings below before use.
+
+-----
+
+## ⚠️ Controller Compatibility & Safety
+
+The different modes require different controller setups. Using the wrong combination can lead to hazardous, unexpected robot motion.
+
+### FreeDrive & Force Mode
+
+These two modes are **incompatible** with standard `ros_control` position or trajectory controllers (e.g., `joint_trajectory_controller`). When FreeDrive or Force Mode is active, you **must** ensure no such controllers are running to avoid conflicts.
+
+  * **Compatible Alternative**: For trajectory execution alongside these modes, the `passthrough_controller` can be used as it forwards commands to the UR controller, avoiding ROS-side conflicts. For details, see the [`Universal_Robots_ROS_passthrough_controllers`](https://www.google.com/search?q=%5Bhttps://github.com/UniversalRobots/Universal_Robots_ROS_passthrough_controllers%5D\(https://github.com/UniversalRobots/Universal_Robots_ROS_passthrough_controllers\)) repository.
+
+### Direct Torque Control
+
+In contrast, this mode **requires** an `effort_controller` from the `ros_control` framework. It is incompatible with the `joint_trajectory_controller` and cannot be used at the same time as FreeDrive or Force mode.
+
+-----
+
+## Usage
+
+### 1\. Free Drive Mode
+
+To enable, continuously publish `true` to the following topic. Use `Ctrl+C` to stop the publisher, which will disable the mode.
+
+```bash
+rostopic pub -r 1 /ur_hardware_interface/free_drive_mode std_msgs/Bool "true"
+```
+
+-----
+
+### 2\. Force Mode
+
+This mode is controlled by calling ROS services.
+
+  * **Parameter Reference**: The `start_force_mode` service parameters are based on the standard URScript `force_mode` function. For details, see the [official UR documentation](https://www.universal-robots.com/articles/ur/programming/urscript-dynamic-force-control/).
+  * **Limitation**: Please note that setting a custom frame_id in task_frame is not currently supported. The robot's base frame will be used by default, and any value passed to this field will be ignored.
+**To Start:**
+
+```bash
+# Example service call. Adapt parameters based on your service definition.
+rosservice call /ur_hardware_interface/start_force_mode "task_frame:
+  header:
+    seq: 0
+    stamp: {secs: 0, nsecs: 0}
+    frame_id: 'tool'
+  pose:
+    position: {x: 0.0, y: 0.0, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.0, w: 0.0}
+selection_vector_x: false
+selection_vector_y: false
+selection_vector_z: true
+selection_vector_rx: false
+selection_vector_ry: false
+selection_vector_rz: false
+wrench:
+  force: {x: 0.0, y: 0.0, z: 5.0}
+  torque: {x: 0.0, y: 0.0, z: 0.0}
+type: 2
+speed_limits:
+  linear: {x: 0.1, y: 0.1, z: 0.1}
+  angular: {x: 0.1, y: 0.1, z: 0.1}
+deviation_limits: [0.1, 0.1, 0.15, 0.17, 0.17, 0.17]
+damping_factor: 0.005
+gain_scaling: 1.0"
+```
+
+**To Stop:**
+
+```bash
+rosservice call /ur_hardware_interface/stop_force_mode "{}"
+```
+
+-----
+
+### 3\. Direct Torque Control
+
+This mode allows sending direct torque commands to the robot joints, which is useful for advanced robotics research.
+
+**Setup:**
+This mode requires a `ros_control` controller that commands an effort interface, such as `effort_controllers/JointTrajectoryController` or `effort_controllers/JointGroupEffortController`. Below is an example configuration for a trajectory controller that uses torque commands with PID gains to follow a trajectory.
+
+*config/ur\_effort\_controllers.yaml:*
+
+```yaml
+# An effort-based trajectory controller
+effort_joint_trajectory_controller:
+  type: effort_controllers/JointTrajectoryController
+  joints:
+    - shoulder_pan_joint
+    - shoulder_lift_joint
+    - elbow_joint
+    - wrist_1_joint
+    - wrist_2_joint
+    - wrist_3_joint
+  gains: # Required for an effort interface
+    shoulder_pan_joint:  {p: 100, d: 5, i: 1}
+    shoulder_lift_joint: {p: 100, d: 5, i: 1}
+    elbow_joint:         {p: 100, d: 5, i: 1}
+    wrist_1_joint:       {p: 50,  d: 1, i: 0.5}
+    wrist_2_joint:       {p: 50,  d: 1, i: 0.5}
+    wrist_3_joint:       {p: 50,  d: 1, i: 0.5}
+```
+
+**Usage:**
+Once the appropriate effort controller is loaded and started, you can send it commands. For an `effort_controllers/JointGroupEffortController`, you would publish direct torque values. For the trajectory controller shown above, you would send a trajectory goal.
 
 ---
 
