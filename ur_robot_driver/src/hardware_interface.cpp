@@ -185,6 +185,11 @@ bool HardwareInterface::init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw
   // or movel commands are used
   use_spline_interpolation_ = robot_hw_nh.param<bool>("use_spline_interpolation", "true");
 
+  // Blend radius for trajectory execution when use_spline_interpolation is false
+  // This parameter determines the smoothness of transitions between trajectory points
+  // A larger value creates smoother motion but may deviate more from the exact path
+  blend_radius_ = robot_hw_nh.param<double>("blend_radius", 0.0);
+
   // Whenever the runtime state of the "External Control" program node in the UR-program changes, a
   // message gets published here. So this is equivalent to the information whether the robot accepts
   // commands from ROS side.
@@ -1428,7 +1433,7 @@ void HardwareInterface::startJointInterpolation(const hardware_interface::JointT
     double next_time = point.time_from_start.toSec();
     if (!use_spline_interpolation_)
     {
-      ur_driver_->writeTrajectoryPoint(p, false, next_time - last_time);
+      ur_driver_->writeTrajectoryPoint(p, false, next_time - last_time, blend_radius_);
     }
     else  // Use spline interpolation
     {
@@ -1493,7 +1498,7 @@ void HardwareInterface::startCartesianInterpolation(const hardware_interface::Ca
     p[4] = rot.GetRot().y();
     p[5] = rot.GetRot().z();
     double next_time = point.time_from_start.toSec();
-    ur_driver_->writeTrajectoryPoint(p, true, next_time - last_time);
+    ur_driver_->writeTrajectoryPoint(p, true, next_time - last_time, blend_radius_);
     last_time = next_time;
   }
   ROS_DEBUG("Finished Sending Trajectory");

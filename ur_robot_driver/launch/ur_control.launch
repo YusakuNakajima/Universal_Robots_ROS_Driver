@@ -34,6 +34,7 @@
   <arg name="servoj_lookahead_time" default="0.03" doc="Specify lookahead time for servoing to position in joint space. A longer lookahead time can smooth the trajectory."/>
   <arg name="ur_hardware_interface_node_required" default="true" doc="Shut down ros environment if ur_hardware_interface-node dies."/>
   <arg name="use_spline_interpolation" default="true" doc="True if splines should be used as interpolation on the robot controller when forwarding trajectory, if false movej or movel commands are used"/>
+  <arg name="blend_radius" default="0.0" doc="Blend radius for trajectory execution when use_spline_interpolation is false. Controls smoothness of motion between trajectory points (meters)"/>
   <arg name="robot_receive_timeout" default="0.02" doc="Timeout for the robot to respond to a command. This is used to prevent the robot from hanging if it does not respond to a command. Most be a multiple of 0.02"/>
 
   <!-- Load hardware interface -->
@@ -61,6 +62,7 @@
     <param name="servoj_gain" value="$(arg servoj_gain)"/>
     <param name="servoj_lookahead_time" value="$(arg servoj_lookahead_time)"/>
     <param name="use_spline_interpolation" value="$(arg use_spline_interpolation)"/>
+    <param name="blend_radius" value="$(arg blend_radius)"/>
     <param name="robot_receive_timeout" value="$(arg robot_receive_timeout)"/>
   </node>
 

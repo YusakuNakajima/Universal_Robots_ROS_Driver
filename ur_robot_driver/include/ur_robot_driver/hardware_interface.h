@@ -349,6 +349,7 @@ protected:
   std::atomic<bool> twist_controller_running_;
   std::atomic<bool> pose_controller_running_;
   std::atomic<bool> use_spline_interpolation_;
+  double blend_radius_;
 
   PausingState pausing_state_;
   double pausing_ramp_up_increment_;
