@@ -188,3 +188,44 @@ This controller implements the
 interface. The continuously generated Cartesian motion commands are transformed to joint commands
 using an inverse kinematics method on the ROS side. The robot itself receives joint commands. The IK
 method used is interchangeable, see the controller's documentation for details.
+
+## ROS Controller to UR Script Command Mapping
+
+*Survey date: 07/09/2025*
+
+The following table shows the mapping between ROS controllers and the corresponding UR Script commands used by the Universal Robots ROS Driver:
+
+| Controller | Position Control | Velocity Control | Acceleration Control | Control Mode |
+|------------|------------------|------------------|---------------------|--------------|
+| `scaled_pos_joint_traj_controller` | `servoj()` | ROS-side interpolation | ROS-side interpolation | MODE_SERVOJ |
+| `pos_joint_traj_controller` | `servoj()` | ROS-side interpolation | ROS-side interpolation | MODE_SERVOJ |
+| `scaled_vel_joint_traj_controller` | Not supported | `speedj()` | ROS-side interpolation | MODE_SPEEDJ |
+| `vel_joint_traj_controller` | Not supported | `speedj()` | ROS-side interpolation | MODE_SPEEDJ |
+| `joint_group_vel_controller` | Not supported | `speedj()` | Direct command | MODE_SPEEDJ |
+| `twist_controller` | Not supported | `speedl()` | Direct command | MODE_SPEEDL |
+| `forward_joint_traj_controller` | `movej()` (no spline) | `speedj()` (spline) | UR-side interpolation | MODE_FORWARD |
+| `forward_cartesian_traj_controller` | `movel()` (no spline) | `speedl()` (spline) | UR-side interpolation | MODE_FORWARD |
+| `joint_based_cartesian_traj_controller` | `servoj()` + ROS IK | ROS-side interpolation | ROS-side interpolation | MODE_SERVOJ |
+| `pose_based_cartesian_traj_controller` | `servoj()` + `get_inverse_kin()` | ROS-side interpolation | ROS-side interpolation | MODE_POSE |
+
+### Notes:
+- **Real-time controllers** (`servoj`, `speedj`, `speedl`, `pose`): Send commands continuously at robot control frequency
+- **Non-real-time controllers** (`forward` controllers): Send complete trajectories to robot for execution
+- **Interpolation methods**:
+  - `ROS-side interpolation`: Trajectory interpolation performed by ROS controller (quintic splines), sends position-only commands to UR robot
+  - `UR-side interpolation`: Complete trajectory forwarded to UR controller for native interpolation
+  - `Direct command`: Direct velocity commands without interpolation
+- **Spline interpolation**: When `use_spline_interpolation=true` in forward controllers, uses robot's native spline interpolation with `speedj()` (joint) or `speedl()` (cartesian) commands instead of `movej()`/`movel()`
+- **IK methods**: 
+  - `joint_based_cartesian_traj_controller`: Uses ROS-side inverse kinematics
+  - `pose_based_cartesian_traj_controller`: Uses robot's built-in inverse kinematics via `get_inverse_kin()`
+- **blend_radius**: Available for forward controllers when `use_spline_interpolation` is false, now configurable via ROS parameter
+
+- moveJ/moveL parameters on forward_joint_traj_controller/forward_cartesian_traj_controller with position only control (not spline interpolation):
+  | URスクリプトパラメータ        | 実装での値                           | 説明                  |
+  |---------------------|---------------------------------|---------------------|
+  | q (joint positions/pose) | trajectory_point.positions[0-5] | ROSトラジェクトリポイントの関節位置 |
+  | a (acceleration)    | デフォルト: 1.4 rad/s²               | 先導軸の関節加速度           |
+  | v (velocity)        | デフォルト: 1.05 rad/s               | 先導軸の関節速度            |
+  | t (time)            | next_time - last_time           | 目標到達時間              |
+  | r (blend_radius)    | blend_radius_パラメータ（デフォルト: 0.0）  | スムージング半径            |
