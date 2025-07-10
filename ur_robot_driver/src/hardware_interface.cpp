@@ -42,6 +42,8 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
+#include <iomanip>
+#include <sstream>
 
 using industrial_robot_status_interface::RobotMode;
 using industrial_robot_status_interface::TriState;
@@ -496,6 +498,12 @@ bool HardwareInterface::init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw
   tf_buffer_.reset(new tf2_ros::Buffer());
   tf_listener_.reset(new tf2_ros::TransformListener(*tf_buffer_));
 
+  // Initialize dynamic task frame functionality
+  force_mode_running_ = false;
+  dynamic_task_frame_enabled_ = false;
+  dynamic_task_frame_sub_ = robot_hw_nh.subscribe("force_mode_dynamic_task_frame", 1, 
+                                                  &HardwareInterface::dynamicTaskFrameCallback, this);
+
   ur_driver_->startRTDECommunication();
   ROS_INFO_STREAM_NAMED("hardware_interface", "Loaded ur_robot_driver hardware_interface");
 
@@ -781,6 +789,10 @@ void HardwareInterface::write(const ros::Time& time, const ros::Duration& period
     {
       ur_driver_->writeKeepalive();
     }
+    
+    // Handle dynamic task frame updates for force mode
+    updateDynamicTaskFrame();
+    
     packet_read_ = false;
   }
 }
@@ -1263,12 +1275,25 @@ bool HardwareInterface::setForceMode(ur_msgs::SetForceModeRequest& req, ur_msgs:
   double damping_factor = req.damping_factor;
   double gain_scale = req.gain_scaling;
 
-  // Check for all-zeros quaternion
+  // Check for all-zeros quaternion and auto-fix
   if (std::abs(req.task_frame.pose.orientation.x) < 1e-6 && std::abs(req.task_frame.pose.orientation.y) < 1e-6 &&
       std::abs(req.task_frame.pose.orientation.z) < 1e-6 && std::abs(req.task_frame.pose.orientation.w) < 1e-6) {
-    ROS_ERROR("Received task frame with all-zeros quaternion. It should have at least one non-zero entry.");
-    res.success = false;
-    return false;
+    ROS_WARN("Received task frame with all-zeros quaternion. Auto-correcting to identity quaternion (w=1.0).");
+    ROS_WARN("DEBUG: Original quaternion values - x:%.6f, y:%.6f, z:%.6f, w:%.6f", 
+              req.task_frame.pose.orientation.x, req.task_frame.pose.orientation.y,
+              req.task_frame.pose.orientation.z, req.task_frame.pose.orientation.w);
+    ROS_WARN("DEBUG: Task frame header - frame_id:'%s', stamp:%f", 
+              req.task_frame.header.frame_id.c_str(), req.task_frame.header.stamp.toSec());
+    ROS_WARN("DEBUG: Position values - x:%.6f, y:%.6f, z:%.6f", 
+              req.task_frame.pose.position.x, req.task_frame.pose.position.y, req.task_frame.pose.position.z);
+    
+    // Auto-fix: Set to identity quaternion
+    req.task_frame.pose.orientation.x = 0.0;
+    req.task_frame.pose.orientation.y = 0.0;
+    req.task_frame.pose.orientation.z = 0.0;
+    req.task_frame.pose.orientation.w = 1.0;
+    
+    ROS_WARN("Auto-corrected to identity quaternion: x=0, y=0, z=0, w=1");
   }
 
   // Transform task frame to base frame if necessary
@@ -1353,12 +1378,38 @@ bool HardwareInterface::setForceMode(ur_msgs::SetForceModeRequest& req, ur_msgs:
     res.success = this->ur_driver_->startForceMode(task_frame, selection_vector, wrench, type, limits, damping_factor,
                                                    gain_scale);
   }
+  
+  // Store current force mode parameters for dynamic updates
+  if (res.success)
+  {
+    std::lock_guard<std::mutex> lock(dynamic_task_frame_mutex_);
+    force_mode_running_ = true;
+    current_force_mode_params_ = task_frame;
+    current_selection_vector_ = selection_vector;
+    current_wrench_ = wrench;
+    current_force_mode_type_ = type;
+    current_limits_ = limits;
+    current_damping_factor_ = damping_factor;
+    current_gain_scale_ = gain_scale;
+    ROS_INFO("Force mode started. Dynamic task frame updates are now enabled via 'force_mode_dynamic_task_frame' topic.");
+  }
+  
   return res.success;
 }
 
 bool HardwareInterface::disableForceMode(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res)
 {
   res.success = this->ur_driver_->endForceMode();
+  
+  // Disable dynamic task frame updates
+  if (res.success)
+  {
+    std::lock_guard<std::mutex> lock(dynamic_task_frame_mutex_);
+    force_mode_running_ = false;
+    dynamic_task_frame_enabled_ = false;
+    ROS_INFO("Force mode stopped. Dynamic task frame updates via 'force_mode_dynamic_task_frame' topic disabled.");
+  }
+  
   return res.success;
 }
 
@@ -1554,6 +1605,134 @@ void HardwareInterface::cancelInterpolation()
 {
   ROS_DEBUG("Cancelling Trajectory");
   ur_driver_->writeTrajectoryControlMessage(urcl::control::TrajectoryControlMessage::TRAJECTORY_CANCEL);
+}
+
+void HardwareInterface::dynamicTaskFrameCallback(const geometry_msgs::PoseStampedConstPtr& msg)
+{
+  std::lock_guard<std::mutex> lock(dynamic_task_frame_mutex_);
+  
+  // Check for all-zeros quaternion
+  if (std::abs(msg->pose.orientation.x) < 1e-6 && std::abs(msg->pose.orientation.y) < 1e-6 &&
+      std::abs(msg->pose.orientation.z) < 1e-6 && std::abs(msg->pose.orientation.w) < 1e-6) {
+    ROS_ERROR("Dynamic task frame received with all-zeros quaternion. Ignoring this update.");
+    ROS_ERROR("DEBUG: Received quaternion values - x:%.6f, y:%.6f, z:%.6f, w:%.6f", 
+              msg->pose.orientation.x, msg->pose.orientation.y,
+              msg->pose.orientation.z, msg->pose.orientation.w);
+    ROS_ERROR("DEBUG: Task frame header - frame_id:'%s', stamp:%f", 
+              msg->header.frame_id.c_str(), msg->header.stamp.toSec());
+    ROS_ERROR("DEBUG: Position values - x:%.6f, y:%.6f, z:%.6f", 
+              msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
+    return;  // Don't update with invalid quaternion
+  }
+  
+  // Store the received frame
+  current_dynamic_task_frame_ = *msg;
+  dynamic_task_frame_enabled_ = true;
+  
+  ROS_DEBUG("Received dynamic task frame update: frame_id=%s, position=[%.3f, %.3f, %.3f], quaternion=[%.3f, %.3f, %.3f, %.3f]",
+            msg->header.frame_id.c_str(), 
+            msg->pose.position.x, msg->pose.position.y, msg->pose.position.z,
+            msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z, msg->pose.orientation.w);
+}
+
+void HardwareInterface::updateDynamicTaskFrame()
+{
+  std::lock_guard<std::mutex> lock(dynamic_task_frame_mutex_);
+  
+  // Only update if force mode is running and dynamic frame is enabled
+  if (!force_mode_running_ || !dynamic_task_frame_enabled_)
+  {
+    return;
+  }
+  
+  try
+  {
+    // Transform task frame to base frame if necessary
+    geometry_msgs::PoseStamped task_frame_transformed;
+    
+    if (!current_dynamic_task_frame_.header.frame_id.empty() && 
+        current_dynamic_task_frame_.header.frame_id != tf_prefix_ + "base" &&
+        current_dynamic_task_frame_.header.frame_id != "base")
+    {
+      // Transform to base frame
+      task_frame_transformed = tf_buffer_->transform(current_dynamic_task_frame_, 
+                                                     tf_prefix_ + "base", 
+                                                     ros::Duration(0.1));
+    }
+    else
+    {
+      // Use as-is (already in base frame)
+      task_frame_transformed.pose = current_dynamic_task_frame_.pose;
+    }
+    
+    // Update the task frame
+    urcl::vector6d_t new_task_frame;
+    new_task_frame[0] = task_frame_transformed.pose.position.x;
+    new_task_frame[1] = task_frame_transformed.pose.position.y;
+    new_task_frame[2] = task_frame_transformed.pose.position.z;
+    
+    // Convert quaternion to axis-angle representation
+    tf2::Quaternion quat_tf;
+    tf2::fromMsg(task_frame_transformed.pose.orientation, quat_tf);
+    const double angle = quat_tf.getAngle();
+    const auto axis = quat_tf.getAxis();
+    new_task_frame[3] = axis.x() * angle;  // rx
+    new_task_frame[4] = axis.y() * angle;  // ry
+    new_task_frame[5] = axis.z() * angle;  // rz
+    
+    // Check if task frame has actually changed
+    bool frame_changed = false;
+    for (int i = 0; i < 6; i++)
+    {
+      if (std::abs(new_task_frame[i] - current_force_mode_params_[i]) > 1e-6)
+      {
+        frame_changed = true;
+        break;
+      }
+    }
+    
+    if (frame_changed)
+    {
+      // Restart force mode with new task frame and all original parameters
+      bool restart_success = false;
+      
+      if (ur_driver_->getVersion().major < 5)
+      {
+        restart_success = ur_driver_->startForceMode(new_task_frame, 
+                                                     current_selection_vector_, 
+                                                     current_wrench_, 
+                                                     current_force_mode_type_, 
+                                                     current_limits_, 
+                                                     current_damping_factor_);
+      }
+      else
+      {
+        restart_success = ur_driver_->startForceMode(new_task_frame, 
+                                                     current_selection_vector_, 
+                                                     current_wrench_, 
+                                                     current_force_mode_type_, 
+                                                     current_limits_, 
+                                                     current_damping_factor_,
+                                                     current_gain_scale_);
+      }
+      
+      if (restart_success)
+      {
+        current_force_mode_params_ = new_task_frame;
+        ROS_DEBUG("Successfully updated force mode with new task frame: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
+                  new_task_frame[0], new_task_frame[1], new_task_frame[2],
+                  new_task_frame[3], new_task_frame[4], new_task_frame[5]);
+      }
+      else
+      {
+        ROS_WARN("Failed to restart force mode with updated task frame");
+      }
+    }
+  }
+  catch (const tf2::TransformException& ex)
+  {
+    ROS_WARN_THROTTLE(1.0, "Failed to transform dynamic task frame: %s", ex.what());
+  }
 }
 
 void HardwareInterface::passthroughTrajectoryDoneCb(urcl::control::TrajectoryResult result)

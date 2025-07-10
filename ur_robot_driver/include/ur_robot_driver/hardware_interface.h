@@ -44,6 +44,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
+#include <mutex>
 
 #include <control_msgs/FollowJointTrajectoryAction.h>
 #include <control_msgs/FollowJointTrajectoryFeedback.h>
@@ -227,6 +228,8 @@ protected:
                                ur_msgs::GetRobotSoftwareVersionResponse& res);
   bool setForceMode(ur_msgs::SetForceModeRequest& req, ur_msgs::SetForceModeResponse& res);
   bool disableForceMode(std_srvs::TriggerRequest& req, std_srvs::TriggerResponse& res);
+  void dynamicTaskFrameCallback(const geometry_msgs::PoseStampedConstPtr& msg);
+  void updateDynamicTaskFrame();
 
   std::unique_ptr<urcl::UrDriver> ur_driver_;
   std::unique_ptr<DashboardClientROS> dashboard_client_;
@@ -373,6 +376,22 @@ protected:
   // TF2 for dynamic frame transformation
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
+
+  // Dynamic task frame update
+  ros::Subscriber dynamic_task_frame_sub_;
+  geometry_msgs::PoseStamped current_dynamic_task_frame_;
+  bool force_mode_running_;
+  bool dynamic_task_frame_enabled_;
+  std::mutex dynamic_task_frame_mutex_;
+  urcl::vector6d_t current_force_mode_params_;
+  
+  // Store all force mode parameters for dynamic updates
+  urcl::vector6uint32_t current_selection_vector_;
+  urcl::vector6d_t current_wrench_;
+  unsigned int current_force_mode_type_;
+  urcl::vector6d_t current_limits_;
+  double current_damping_factor_;
+  double current_gain_scale_;
 };
 
 }  // namespace ur_driver
