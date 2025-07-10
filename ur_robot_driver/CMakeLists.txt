@@ -33,8 +33,10 @@ find_package(catkin REQUIRED
     speed_scaling_state_controller
     std_srvs
     tf
+    tf2
     tf2_geometry_msgs
     tf2_msgs
+    tf2_ros
     trajectory_msgs
     ur_dashboard_msgs
     ur_msgs
@@ -67,8 +69,10 @@ catkin_package(
     speed_scaling_state_controller
     std_srvs
     tf
+    tf2
     tf2_geometry_msgs
     tf2_msgs
+    tf2_ros
     trajectory_msgs
     ur_dashboard_msgs
     ur_msgs

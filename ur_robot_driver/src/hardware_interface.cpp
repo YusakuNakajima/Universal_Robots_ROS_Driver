@@ -38,6 +38,10 @@
 
 #include <Eigen/Geometry>
 #include <stdexcept>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
 
 using industrial_robot_status_interface::RobotMode;
 using industrial_robot_status_interface::TriState;
@@ -487,6 +491,10 @@ bool HardwareInterface::init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw
   // Calling this service will return the software version of the robot.
   get_robot_software_version_srv =
       robot_hw_nh.advertiseService("get_robot_software_version", &HardwareInterface::getRobotSoftwareVersion, this);
+
+  // Initialize TF2 for dynamic frame transformation
+  tf_buffer_.reset(new tf2_ros::Buffer());
+  tf_listener_.reset(new tf2_ros::TransformListener(*tf_buffer_));
 
   ur_driver_->startRTDECommunication();
   ROS_INFO_STREAM_NAMED("hardware_interface", "Loaded ur_robot_driver hardware_interface");
@@ -1255,14 +1263,52 @@ bool HardwareInterface::setForceMode(ur_msgs::SetForceModeRequest& req, ur_msgs:
   double damping_factor = req.damping_factor;
   double gain_scale = req.gain_scaling;
 
-  task_frame[0] = req.task_frame.pose.position.x;
-  task_frame[1] = req.task_frame.pose.position.x;
-  task_frame[2] = req.task_frame.pose.position.x;
-  KDL::Rotation rot = KDL::Rotation::Quaternion(req.task_frame.pose.orientation.x, req.task_frame.pose.orientation.y,
-                                                req.task_frame.pose.orientation.z, req.task_frame.pose.orientation.w);
-  task_frame[3] = rot.GetRot().x();
-  task_frame[4] = rot.GetRot().y();
-  task_frame[5] = rot.GetRot().z();
+  // Check for all-zeros quaternion
+  if (std::abs(req.task_frame.pose.orientation.x) < 1e-6 && std::abs(req.task_frame.pose.orientation.y) < 1e-6 &&
+      std::abs(req.task_frame.pose.orientation.z) < 1e-6 && std::abs(req.task_frame.pose.orientation.w) < 1e-6) {
+    ROS_ERROR("Received task frame with all-zeros quaternion. It should have at least one non-zero entry.");
+    res.success = false;
+    return false;
+  }
+
+  // Transform task frame to base frame if necessary
+  geometry_msgs::PoseStamped task_frame_transformed;
+  
+  // Check if frame_id is provided and not empty/base frame
+  if (!req.task_frame.header.frame_id.empty() && 
+      req.task_frame.header.frame_id != tf_prefix_ + "base" &&
+      req.task_frame.header.frame_id != "base") {
+    
+    try {
+      // Transform to base frame
+      task_frame_transformed = tf_buffer_->transform(req.task_frame, tf_prefix_ + "base", ros::Duration(1.0));
+      ROS_INFO("Successfully transformed task frame from '%s' to '%s'", 
+               req.task_frame.header.frame_id.c_str(), 
+               (tf_prefix_ + "base").c_str());
+    } catch (const tf2::TransformException& ex) {
+      ROS_ERROR("Could not transform %s to robot base: %s",
+                req.task_frame.header.frame_id.c_str(), ex.what());
+      res.success = false;
+      return false;
+    }
+  } else {
+    // Use the pose as-is (already in base frame or no frame specified)
+    task_frame_transformed.pose = req.task_frame.pose;
+  }
+  
+  // Extract position from transformed pose
+  task_frame[0] = task_frame_transformed.pose.position.x;
+  task_frame[1] = task_frame_transformed.pose.position.y;
+  task_frame[2] = task_frame_transformed.pose.position.z;
+  
+  // Convert quaternion to axis-angle representation using tf2
+  tf2::Quaternion quat_tf;
+  tf2::fromMsg(task_frame_transformed.pose.orientation, quat_tf);
+  const double angle = quat_tf.getAngle();
+  const auto axis = quat_tf.getAxis();
+  task_frame[3] = axis.x() * angle;  // rx
+  task_frame[4] = axis.y() * angle;  // ry
+  task_frame[5] = axis.z() * angle;  // rz
 
   selection_vector[0] = req.selection_vector_x;
   selection_vector[1] = req.selection_vector_y;

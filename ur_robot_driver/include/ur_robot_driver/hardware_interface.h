@@ -42,6 +42,8 @@
 #include <realtime_tools/realtime_publisher.h>
 #include <tf2_msgs/TFMessage.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
 
 #include <control_msgs/FollowJointTrajectoryAction.h>
 #include <control_msgs/FollowJointTrajectoryFeedback.h>
@@ -367,6 +369,10 @@ protected:
   std::string robot_ip_;
   std::string tf_prefix_;
   urcl::RobotReceiveTimeout robot_receive_timeout_ = urcl::RobotReceiveTimeout::millisec(20);
+
+  // TF2 for dynamic frame transformation
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
 };
 
 }  // namespace ur_driver
