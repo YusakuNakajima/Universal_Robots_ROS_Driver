@@ -47,6 +47,23 @@
 >  - **Parameter Reference**: The service parameters are based on the standard URScript `force_mode` function. For a detailed explanation of each parameter, please see the [official UR documentation](https://www.universal-robots.com/articles/ur/programming/urscript-dynamic-force-control/).
 >  - **Note**: While this is a ROS 1 implementation, the concept is similar to the official [`force_mode_controller`](https://docs.universal-robots.com/Universal_Robots_ROS2_Documentation/doc/ur_robot_driver/ur_controllers/doc/index.html#force-mode-controller) in the ROS 2 driver.
 >
+>#### Task Frame Support
+>
+>The force mode supports **automatic TF frame transformation** for the task frame:
+>
+>- **Frame ID Setting**: The `task_frame.header.frame_id` can be set to any TF frame in the system (e.g., `tool0`, `end_effector`, `world`, or custom frames).
+>- **Automatic Conversion**: The hardware interface automatically transforms the specified frame to the robot's base frame using TF2.
+>- **Error Handling**: If frame transformation fails, the service returns an error with detailed information.
+>
+>#### Dynamic Task Frame
+>
+>The force mode supports **dynamic task frame updates** during operation:
+>
+>- **Topic**: `/ur_hardware_interface/force_mode_dynamic_task_frame` (type: `geometry_msgs/PoseStamped`)
+>- **Real-time Updates**: Task frame can be changed dynamically while force mode is active.
+>- **TF Integration**: Dynamic updates also support TF frame transformation automatically.
+>- **Seamless Operation**: Force mode parameters are preserved and automatically restarted with the new task frame when significant changes are detected.
+>
 >*Example:*
 >
 >```bash
@@ -54,10 +71,10 @@
 >   header:
 >     seq: 0
 >     stamp: {secs: 0, nsecs: 0}
->     frame_id: 'base'
+>     frame_id: 'tool0'  # Can use any TF frame
 >   pose:
 >     position: {x: 0.0, y: 0.0, z: 0.0}
->     orientation: {x: 0.0, y: 0.0, z: 0.0, w: 0.0}
+>     orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
 > selection_vector_x: false
 > selection_vector_y: false
 > selection_vector_z: true
@@ -74,6 +91,18 @@
 > deviation_limits: [0.1, 0.1, 0.15, 0.17, 0.17, 0.17]
 > damping_factor: 0.005
 > gain_scaling: 1.0"
+>```
+>
+>*Dynamic task frame update example:*
+>
+>```bash
+># Change task frame dynamically during force mode operation
+>rostopic pub /ur_hardware_interface/force_mode_dynamic_task_frame geometry_msgs/PoseStamped "
+>header:
+>  frame_id: 'end_effector'
+>pose:
+>  position: {x: 0.05, y: 0.0, z: 0.0}
+>  orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}"
 >```
 >
 >> **Note:** The above service call is a simplified example. The original example had some inconsistencies (e.g., `selection_vector` format, `speed_limits` vs. `limits`). Please adapt it based on your actual service definition.
