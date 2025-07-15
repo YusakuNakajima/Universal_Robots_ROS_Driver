@@ -188,3 +188,49 @@ This controller implements the
 interface. The continuously generated Cartesian motion commands are transformed to joint commands
 using an inverse kinematics method on the ROS side. The robot itself receives joint commands. The IK
 method used is interchangeable, see the controller's documentation for details.
+
+## ROS Controller to UR Script Command Mapping
+
+*Survey date: 07/09/2025*
+
+This table maps ROS controllers from the `ur_robot_driver` to their corresponding UR Script commands, outlining how they manage robot motion.
+
+| Controller Name | Base Controller Type | Control Mode | Position Command | Velocity Command | Acceleration Command | Interpolation Method |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `scaled_pos_joint_traj_controller` | `JointTrajectoryController` | Position | `servoj` | `servoj` | `servoj` | ROS-side (Quintic spline) |
+| `scaled_vel_joint_traj_controller` | `JointTrajectoryController` | Position | Not supported | `servoj` | `servoj` | ROS-side (Quintic spline) |
+| `joint_group_vel_controller` | `JointGroupVelocityController` | Velocity | Not supported | `speedj` | `speedj` | Direct command (no interpolation) |
+| `joint_based_cartesian_traj_controller` | `CartesianTrajectoryController` | Position | `servoj` (via ROS IK) | `servoj` (via ROS IK) | `servoj` (via ROS IK) | ROS-side (Quintic spline) |
+| `pose_based_cartesian_traj_controller` | `CartesianTrajectoryController` | Position | `servoj` (via UR IK) | `servoj` (via UR IK) | `servoj` (via UR IK) | ROS-side (Quintic spline) |
+| `twist_controller` | Real-time Velocity Controller | Velocity | Not supported | `speedl` | `speedl` | Direct command (no interpolation) |
+| `forward_joint_traj_controller` | Passthrough Controller | Position / Velocity | `movej` | `speedj` | `speedj` | UR-side or Direct |
+| `forward_cartesian_traj_controller` | Passthrough Controller | Position / Velocity | `movel` | `movel` | `movel` | UR-side or Direct |
+
+---
+
+### Key Concepts 📝
+
+#### Controller Types
+
+* **Real-time Controllers** (`servoj`, `speedj`, `speedl`): These controllers continuously stream commands to the robot at its control frequency (e.g., 500 Hz), enabling highly responsive control. They are ideal for tasks requiring dynamic adjustments.
+* **Non-real-time "Forwarding" Controllers** (`movej`, `movel`): These controllers send a complete trajectory (a sequence of points) to the robot's controller at one time. The robot then executes the entire path autonomously. This is simpler and often results in smoother motion for pre-defined paths.
+
+---
+
+### Technical Notes ⚙️
+
+#### Interpolation Methods
+
+* **ROS-side Interpolation**: The ROS controller (e.g., `JointTrajectoryController`) calculates the trajectory path using quintic splines. It then sends a dense stream of `servoj` position commands to the robot to follow that path precisely.
+* **UR-side Interpolation**: The entire trajectory is sent to the UR controller, which uses its own internal algorithms (`movej`, `movel`) to interpolate between waypoints and execute the motion.
+* **Direct Command**: Velocity commands (`speedj`, `speedl`) are sent directly to the robot without any higher-level interpolation. The robot simply tries to achieve the target velocity as quickly as possible.
+
+#### Inverse Kinematics (IK)
+
+* **`joint_based_cartesian_traj_controller`**: Performs Inverse Kinematics on the ROS side. It uses a numerical solver (by default, KDL's Levenberg-Marquardt algorithm) to calculate the required joint angles for a desired Cartesian pose.
+* **`pose_based_cartesian_traj_controller`**: Leverages the robot's highly optimized, built-in IK by calling the `get_inverse_kin()` function directly on the controller. This is often faster and more reliable.
+
+#### Motion Blending (`blend_radius`)
+
+* **`forward_joint_traj_controller`**: Blending is available when sending waypoint-based trajectories (`movej`), allowing for smooth transitions between segments. It is not used when the controller is configured for spline interpolation.
+* **`forward_cartesian_traj_controller`**: Blending is available for `movel` commands, enabling smooth, continuous Cartesian movements.
