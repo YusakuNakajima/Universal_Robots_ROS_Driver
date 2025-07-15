@@ -77,29 +77,29 @@ The force mode supports **dynamic task frame updates** during operation:
 
 ```bash
 rosservice call /ur_hardware_interface/start_force_mode "task_frame:
-   header:
-     seq: 0
-     stamp: {secs: 0, nsecs: 0}
-     frame_id: 'tool0'  # Can use any TF frame
-   pose:
-     position: {x: 0.0, y: 0.0, z: 0.0}
-     orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
- selection_vector_x: false
- selection_vector_y: false
- selection_vector_z: true
- selection_vector_rx: false
- selection_vector_ry: false
- selection_vector_rz: false
- wrench:
-   force: {x: 0.0, y: 0.0, z: 5.0}
-   torque: {x: 0.0, y: 0.0, z: 0.0}
- type: 2
- speed_limits:
-   linear: {x: 0.1, y: 0.1, z: 0.1}
-   angular: {x: 0.1, y: 0.1, z: 0.1}
- deviation_limits: [0.1, 0.1, 0.15, 0.17, 0.17, 0.17]
- damping_factor: 0.005
- gain_scaling: 1.0"
+  header:
+    seq: 0
+    stamp: {secs: 0, nsecs: 0}
+    frame_id: 'tool0'
+  pose:
+    position: {x: 0.0, y: 0.0, z: 0.0}
+    orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
+selection_vector_x: false
+selection_vector_y: false
+selection_vector_z: true
+selection_vector_rx: false
+selection_vector_ry: false
+selection_vector_rz: false
+wrench:
+  force: {x: 0.0, y: 0.0, z: 0.0}
+  torque: {x: 0.0, y: 0.0, z: 0.0}
+type: 2
+speed_limits:
+  linear: {x: 0.1, y: 0.1, z: 0.1}
+  angular: {x: 0.1, y: 0.1, z: 0.1}
+deviation_limits: [0.1, 0.1, 0.15, 0.17, 0.17, 0.17]
+damping_factor: 0.005
+gain_scaling: 1.0"
 ```
 
 *Dynamic task frame update example:*
